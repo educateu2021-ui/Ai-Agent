@@ -552,7 +552,7 @@ def app_training():
                         if n_stat != c_stat:
                             update_training_status(st.session_state['name'], row['id'], n_stat); st.rerun()
 
-# --- RESOURCE TRACKER (Formerly Onboarding) ---
+# --- RESOURCE TRACKER APP (UPDATED) ---
 def app_resource():
     c1, c2 = st.columns([1, 6])
     with c1:
@@ -560,107 +560,184 @@ def app_resource():
     with c2: st.markdown("### 🚀 Resource Tracker")
     st.markdown("---")
 
-    # --- TEAM LEADER VIEW: CARD LINE ITEMS & EDIT ---
-    if st.session_state['role'] == "Team Leader":
-        # State for editing
-        if 'edit_res_user' not in st.session_state: st.session_state['edit_res_user'] = None
-        if 'add_res_mode' not in st.session_state: st.session_state['add_res_mode'] = False
+    # Only Team Leaders can Manage Resources
+    if st.session_state['role'] != "Team Leader":
+        st.warning("Access Restricted: Only Team Leaders can manage the Resource Tracker.")
+        return
 
-        # Header Row: Title + Add Button
-        h1, h2 = st.columns([4, 1])
-        with h1: st.markdown("#### Team Resources")
-        with h2: 
-            if st.button("➕ Add Resource", type="primary", use_container_width=True):
-                st.session_state['add_res_mode'] = True
-                st.session_state['edit_res_user'] = None
+    # Initialization
+    if 'edit_res_id' not in st.session_state: st.session_state['edit_res_id'] = None
+    if 'add_res_mode' not in st.session_state: st.session_state['add_res_mode'] = False
+
+    # --- Header & Actions ---
+    h1, h2 = st.columns([4, 1])
+    with h1: st.markdown("#### Team Staffing Details")
+    with h2: 
+        if st.button("➕ Add Resource", type="primary", use_container_width=True):
+            st.session_state['add_res_mode'] = True
+            st.session_state['edit_res_id'] = None
+            st.rerun()
+
+    # --- ADD / EDIT FORM ---
+    if st.session_state['add_res_mode'] or st.session_state['edit_res_id']:
+        with st.container(border=True):
+            is_add = st.session_state['add_res_mode']
+            st.subheader("Resource Details" if is_add else f"Edit Resource: {st.session_state['edit_res_id']}")
+            
+            # Load Data if Editing
+            d = {}
+            if not is_add:
+                df_all = get_all_resources_v2()
+                row = df_all[df_all['employee_id'] == st.session_state['edit_res_id']]
+                if not row.empty: d = row.iloc[0].to_dict()
+
+            with st.form("resource_v2_form"):
+                # ROW 1: Basic Info
+                c1, c2, c3 = st.columns(3)
+                emp_name = c1.text_input("Employee Name", value=d.get('employee_name', ''))
+                emp_id = c2.text_input("Employee ID", value=d.get('employee_id', ''), disabled=not is_add)
+                
+                # Auto-fill Manager (Mock logic: Assuming logged in user is the manager)
+                manager_val = d.get('reporting_manager', st.session_state['name'])
+                rep_manager = c3.selectbox("Reporting Manager", [st.session_state['name'], "Jane Doe", "John Smith"], 
+                                           index=0 if manager_val == st.session_state['name'] else 0)
+
+                # ROW 2: Role & Location
+                c4, c5, c6 = st.columns(3)
+                dev_role = c4.selectbox("DEV / Role", ["Frontend Dev", "Backend Dev", "Fullstack", "QA", "Data Scientist"], 
+                                        index=["Frontend Dev", "Backend Dev", "Fullstack", "QA", "Data Scientist"].index(d.get('dev_role', 'Frontend Dev')) if d.get('dev_role') in ["Frontend Dev", "Backend Dev", "Fullstack", "QA", "Data Scientist"] else 0)
+                
+                dept = c5.selectbox("Department", ["Engineering", "Product", "Design", "Data"], 
+                                    index=["Engineering", "Product", "Design", "Data"].index(d.get('department', 'Engineering')) if d.get('department') in ["Engineering", "Product", "Design", "Data"] else 0)
+                
+                loc_list = ["Chennai", "Pune", "Bangalore", "Hyderabad", "Remote"]
+                loc = c6.selectbox("Location", loc_list, index=loc_list.index(d.get('location', 'Chennai')) if d.get('location') in loc_list else 0)
+
+                # ROW 3: Dates & Skills
+                c7, c8 = st.columns(2)
+                
+                # Date Parse Helper
+                def get_date_val(key):
+                    if d.get(key) and d.get(key) != 'None':
+                        return pd.to_datetime(d.get(key)).date()
+                    return date.today()
+
+                onboard_date = c7.date_input("Onboarding Start Date", value=get_date_val('onboarding_start_date'))
+                skill = c8.selectbox("Skill Level", ["L1 - Junior", "L2 - Intermediate", "L3 - Senior", "L4 - Lead"], 
+                                     index=["L1 - Junior", "L2 - Intermediate", "L3 - Senior", "L4 - Lead"].index(d.get('skill_level', 'L1 - Junior')) if d.get('skill_level') else 0)
+
+                # ROW 4: Systems & Auto-Derived
+                st.markdown("---")
+                st.caption("🔒 System & Compliance")
+                
+                # System Access (Multi-select)
+                saved_sys = d.get('system_access_req', '').split(',') if d.get('system_access_req') else []
+                sys_req = st.multiselect("System Access Requirements", ["JIRA", "Confluence", "GitLab", "AWS", "Azure", "SAP"], default=saved_sys)
+                
+                # Auto-Derived Logic for Display (Read Only)
+                derived_training = "Security Awareness, Code of Conduct"
+                if dev_role == "QA": derived_training += ", Automation Basics"
+                if dept == "Data": derived_training += ", GDPR Training"
+                
+                derived_docs = "PAN Card, Aadhar"
+                if loc != "Remote": derived_docs += ", Vaccine Certificate"
+
+                cc1, cc2 = st.columns(2)
+                cc1.text_area("Mandatory Role-based Trainings (Auto)", value=derived_training, disabled=True)
+                cc2.text_area("Document List Required (Auto)", value=derived_docs, disabled=True)
+                
+                po_det = st.text_input("PO Details", value=d.get('po_details', ''))
+
+                # ROW 5: Status & Conditional Logic
+                st.markdown("---")
+                st.caption("⚡ Status & Exit Management")
+                
+                stat_opts = ["Active", "Inactive"]
+                curr_stat = d.get('status', 'Active')
+                status = st.selectbox("Status", stat_opts, index=stat_opts.index(curr_stat) if curr_stat in stat_opts else 0)
+                
+                rem = st.text_area("Remarks if any", value=d.get('remarks', ''))
+
+                # CONDITIONAL INPUTS
+                exit_date = None
+                backfill = "N/A"
+                reason = ""
+                
+                if status == "Inactive":
+                    st.error("User marked as Inactive. Please fill exit details below.")
+                    ec1, ec2 = st.columns(2)
+                    exit_date = ec1.date_input("Effective Exit Day", value=get_date_val('effective_exit_date'))
+                    backfill = ec2.selectbox("Backfill Status", ["Initiated", "Pending Approval", "Interviews On-going", "Closed", "Not Required"], 
+                                             index=0 if not d.get('backfill_status') else ["Initiated", "Pending Approval", "Interviews On-going", "Closed", "Not Required"].index(d.get('backfill_status')))
+                    reason = st.text_area("Reason for Leaving from Project", value=d.get('reason_for_leaving', ''))
+
+                # SAVE BUTTON
+                if st.form_submit_button("💾 Save Resource Details", type="primary", use_container_width=True):
+                    if not emp_id or not emp_name:
+                        st.error("Employee Name and ID are required!")
+                        st.stop()
+                    
+                    payload = {
+                        "employee_id": emp_id, "employee_name": emp_name, "dev_role": dev_role,
+                        "department": dept, "location": loc, "reporting_manager": rep_manager,
+                        "onboarding_start_date": str(onboard_date), "skill_level": skill,
+                        "system_access_req": ",".join(sys_req), # Store list as CSV string
+                        "mandatory_trainings": derived_training,
+                        "doc_list_req": derived_docs,
+                        "po_details": po_det, "status": status, "remarks": rem,
+                        "effective_exit_date": str(exit_date) if exit_date else None,
+                        "backfill_status": backfill if status == "Inactive" else None,
+                        "reason_for_leaving": reason if status == "Inactive" else None
+                    }
+                    save_resource_v2(payload)
+                    st.success("Resource Saved Successfully!")
+                    st.session_state['add_res_mode'] = False
+                    st.session_state['edit_res_id'] = None
+                    st.rerun()
+
+            if st.button("Cancel"):
+                st.session_state['add_res_mode'] = False
+                st.session_state['edit_res_id'] = None
                 st.rerun()
 
-        # ADD / EDIT FORM
-        if st.session_state['add_res_mode'] or st.session_state['edit_res_user']:
+    # --- LIST VIEW ---
+    st.markdown("### 📋 Staff Directory")
+    df = get_all_resources_v2()
+    
+    if not df.empty:
+        # Simple Filter
+        f_stat = st.selectbox("Filter by Status", ["All", "Active", "Inactive"], index=1)
+        if f_stat != "All":
+            df = df[df['status'] == f_stat]
+
+        for idx, row in df.iterrows():
             with st.container(border=True):
-                is_add = st.session_state['add_res_mode']
-                st.subheader("Add Resource" if is_add else f"Edit Resource: {st.session_state['edit_res_user']}")
+                c_main, c_det, c_stat, c_act = st.columns([3, 3, 2, 1])
                 
-                # Fetch existing data if editing
-                def_data = {}
-                if not is_add:
-                    df_res = get_all_onboarding()
-                    row = df_res[df_res['username'] == st.session_state['edit_res_user']]
-                    if not row.empty: def_data = row.iloc[0].to_dict()
+                with c_main:
+                    st.markdown(f"**{row['employee_name']}**")
+                    st.caption(f"ID: {row['employee_id']}")
+                    st.caption(f"🛠 {row['dev_role']}")
 
-                with st.form("resource_form"):
-                    c1, c2, c3 = st.columns(3)
-                    # For Add Mode, we need manual inputs. For Edit, they might be read-only if from Login
-                    uname = c1.text_input("Username (Unique)", value=def_data.get('username',''), disabled=not is_add)
-                    fname = c2.text_input("Full Name", value=def_data.get('fullname',''))
-                    empid = c3.text_input("Emp ID", value=def_data.get('emp_id',''))
-                    
-                    c4, c5 = st.columns(2)
-                    tid_val = c4.text_input("TID", value=def_data.get('tid',''))
-                    loc_val = c5.selectbox("Location", ["Chennai", "Pune", "Bangalore", "Client Site"], index=0)
-                    
-                    st.markdown("---")
-                    st.markdown("**Access Control (Manager)**")
-                    m1, m2, m3 = st.columns(3)
-                    t_act = m1.checkbox("TID Active", value=bool(def_data.get('tid_active', 0)))
-                    e_mail = m2.checkbox("Ext. Mail Created", value=bool(def_data.get('ext_mail_id', 0)))
-                    tc_acc = m3.checkbox("Teamcenter Access", value=bool(def_data.get('teamcenter_access', 0)))
+                with c_det:
+                    st.write(f"📍 {row['location']}")
+                    st.write(f"📅 Onboard: {row['onboarding_start_date']}")
+                    if row['status'] == "Inactive":
+                        st.write(f"🚪 Exit: {row['effective_exit_date']}")
 
-                    if st.form_submit_button("💾 Save Resource"):
-                        if not uname: st.error("Username required"); st.stop()
-                        payload = {
-                            "username": uname, "fullname": fname, "emp_id": empid, "tid": tid_val,
-                            "location": loc_val, "tid_active": 1 if t_act else 0,
-                            "ext_mail_id": 1 if e_mail else 0, "teamcenter_access": 1 if tc_acc else 0,
-                            # Preserve or default others
-                            "work_mode": def_data.get('work_mode', 'Office'),
-                            "hr_policy_briefing": def_data.get('hr_policy_briefing', 0),
-                            "it_system_setup": def_data.get('it_system_setup', 0),
-                            "team_centre_training": def_data.get('team_centre_training', 0),
-                            "agt_access": def_data.get('agt_access', 0),
-                            "rdp_access": def_data.get('rdp_access', 0),
-                            "avd_access": def_data.get('avd_access', 0),
-                            "blocking_point": def_data.get('blocking_point', ''),
-                            "ticket_raised": def_data.get('ticket_raised', '')
-                        }
-                        save_onboarding_details(payload)
-                        st.success("Resource Saved")
+                with c_stat:
+                    color = "#10b981" if row['status'] == 'Active' else "#ef4444"
+                    st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:1.1em;'>● {row['status']}</span>", unsafe_allow_html=True)
+                    if row['status'] == "Inactive":
+                        st.caption(f"Reason: {row['reason_for_leaving']}")
+
+                with c_act:
+                    if st.button("✏️", key=f"edit_v2_{row['employee_id']}"):
+                        st.session_state['edit_res_id'] = row['employee_id']
                         st.session_state['add_res_mode'] = False
-                        st.session_state['edit_res_user'] = None
                         st.rerun()
-                
-                if st.button("Cancel"):
-                    st.session_state['add_res_mode'] = False
-                    st.session_state['edit_res_user'] = None
-                    st.rerun()
-            st.markdown("---")
-
-        # DISPLAY CARDS
-        df = get_all_onboarding()
-        if not df.empty:
-            for idx, row in df.iterrows():
-                with st.container(border=True):
-                    # Layout: Avatar | Details | Status | Action
-                    c1, c2, c3, c4 = st.columns([1, 3, 2, 1])
-                    with c1:
-                        st.markdown("👤") # Placeholder icon
-                    with c2:
-                        st.markdown(f"**{row['fullname']}**")
-                        st.caption(f"{row['emp_id']} | {row['tid']}")
-                    with c3:
-                        st.caption("Onboarding Status")
-                        # Simple visual check
-                        if row['tid_active'] and row['ext_mail_id']:
-                            st.markdown("<span class='status-ok'>Active</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown("<span class='status-pending'>Pending Setup</span>", unsafe_allow_html=True)
-                    with c4:
-                        if st.button("Edit", key=f"res_edit_{row['username']}"):
-                            st.session_state['edit_res_user'] = row['username']
-                            st.session_state['add_res_mode'] = False
-                            st.rerun()
-        else:
-            st.info("No resources found. Click 'Add Resource' to begin.")
+    else:
+        st.info("No resources found in the new tracker. Click 'Add Resource' to get started.")
 
     # --- MEMBER VIEW (Checklist) ---
     else:
