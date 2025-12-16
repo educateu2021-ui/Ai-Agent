@@ -3,7 +3,6 @@ import pandas as pd
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta
-import time
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -48,16 +47,15 @@ st.markdown(
     }
     
     /* Status Badges */
-    .status-ok { color: #10b981; font-weight: bold; }
-    .status-pending { color: #f59e0b; font-weight: bold; }
-    .status-block { color: #ef4444; font-weight: bold; }
+    .status-active { color: #10b981; font-weight: bold; }
+    .status-inactive { color: #ef4444; font-weight: bold; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ---------- DATABASE ----------
-DB_FILE = "portal_data_final_v14_demo.db"
+DB_FILE = "portal_data_final_v15_full.db"
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -83,62 +81,36 @@ def init_db():
         last_updated TEXT, PRIMARY KEY (user_name, training_id)
     )''')
     
-    # 3. Resource Tracker Table
-    c.execute('''CREATE TABLE IF NOT EXISTS onboarding_details (
-        username TEXT PRIMARY KEY,
-        fullname TEXT,
-        emp_id TEXT,
-        tid TEXT,
+    # 3. RESOURCE TRACKER V2 (Updated Schema)
+    c.execute('''CREATE TABLE IF NOT EXISTS resource_tracker_v2 (
+        employee_id TEXT PRIMARY KEY,
+        employee_name TEXT,
+        dev_role TEXT,
+        department TEXT,
         location TEXT,
-        work_mode TEXT,
-        hr_policy_briefing INTEGER,
-        it_system_setup INTEGER,
-        tid_active INTEGER,
-        team_centre_training INTEGER,
-        agt_access INTEGER,
-        ext_mail_id INTEGER,
-        rdp_access INTEGER,
-        avd_access INTEGER,
-        teamcenter_access INTEGER,
-        blocking_point TEXT,
-        ticket_raised TEXT
+        reporting_manager TEXT,
+        onboarding_start_date TEXT,
+        skill_level TEXT,
+        system_access_req TEXT,
+        mandatory_trainings TEXT,
+        doc_list_req TEXT,
+        po_details TEXT,
+        status TEXT,
+        remarks TEXT,
+        effective_exit_date TEXT,
+        backfill_status TEXT,
+        reason_for_leaving TEXT
     )''')
     
     # --- DEMO DATA INJECTION ---
-    
-    # Check & Add Training Demo Data
     c.execute("SELECT count(*) FROM training_repo")
     if c.fetchone()[0] == 0:
         trainings = [
             ("TR-01", "Python Basics", "Introduction to Python syntax", "https://python.org", "All", 1, "System"),
             ("TR-02", "Advanced Pandas", "Data manipulation mastery", "https://pandas.pydata.org", "Team Member", 0, "System"),
             ("TR-03", "Streamlit UI", "Building interactive dashboards", "https://streamlit.io", "All", 1, "System"),
-            ("TR-04", "Workplace Safety", "Fire & Health safety protocols", "https://osha.gov", "All", 1, "System"),
-            ("TR-05", "Leadership 101", "Managing high-performance teams", "https://hbr.org", "Team Leader", 1, "System"),
-            ("TR-06", "Agile Scrum", "Sprints, standups and retrospectives", "https://scrum.org", "All", 0, "System"),
-            ("TR-07", "Git Version Control", "Branching strategies and PRs", "https://github.com", "Team Member", 1, "System"),
-            ("TR-08", "Cyber Security", "Phishing awareness and data privacy", "https://security.com", "All", 1, "System"),
-            ("TR-09", "Conflict Resolution", "HR guidelines for conflicts", "https://hr.com", "Team Leader", 0, "System"),
-            ("TR-10", "Cloud Computing", "AWS Fundamentals", "https://aws.amazon.com", "Team Member", 0, "System")
         ]
         c.executemany("INSERT INTO training_repo VALUES (?,?,?,?,?,?,?)", trainings)
-
-    # Check & Add Resource Demo Data
-    c.execute("SELECT count(*) FROM onboarding_details")
-    if c.fetchone()[0] == 0:
-        resources = [
-            ("res1", "Alice Johnson", "EMP-201", "TID-201", "Chennai", "Office", 1, 1, 1, 1, 0, 1, 0, 0, 1, "", ""),
-            ("res2", "Bob Smith", "EMP-202", "TID-202", "Pune", "Remote", 1, 1, 0, 0, 1, 0, 1, 1, 0, "VPN Issue", "TKT-1029"),
-            ("res3", "Charlie Brown", "EMP-203", "TID-203", "Bangalore", "Office", 1, 1, 1, 1, 0, 1, 0, 0, 1, "", ""),
-            ("res4", "Diana Prince", "EMP-204", "TID-204", "Chennai", "Remote", 0, 0, 0, 0, 0, 0, 0, 0, 0, "", ""),
-            ("res5", "Evan Wright", "EMP-205", "TID-205", "Pune", "Office", 1, 1, 1, 0, 0, 1, 0, 0, 0, "Laptop Delay", "TKT-3321"),
-            ("res6", "Fiona Gallagher", "EMP-206", "TID-206", "Client Site", "Office", 1, 1, 1, 1, 0, 1, 0, 0, 1, "", ""),
-            ("res7", "George Martin", "EMP-207", "TID-207", "Bangalore", "Remote", 1, 0, 0, 0, 1, 0, 1, 0, 0, "", ""),
-            ("res8", "Hannah Baker", "EMP-208", "TID-208", "Chennai", "Office", 1, 1, 1, 1, 0, 1, 0, 0, 1, "", ""),
-            ("res9", "Ian Somerhalder", "EMP-209", "TID-209", "Pune", "Remote", 1, 1, 1, 1, 1, 1, 1, 1, 1, "", ""),
-            ("res10", "Jack Daniels", "EMP-210", "TID-210", "Chennai", "Office", 0, 1, 0, 0, 0, 0, 0, 0, 0, "No ID Card", "")
-        ]
-        c.executemany("INSERT INTO onboarding_details VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", resources)
 
     conn.commit()
     conn.close()
@@ -238,53 +210,44 @@ def update_training_status(user_name, training_id, status):
               (user_name, training_id, status, str(date.today())))
     conn.commit(); conn.close()
 
-def import_training_csv(file):
-    try:
-        df = pd.read_csv(file)
-        if 'title' not in df.columns: return False
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        for _, row in df.iterrows():
-            tid = str(uuid.uuid4())[:8]
-            c.execute("INSERT INTO training_repo VALUES (?,?,?,?,?,?,?)", 
-                      (tid, row['title'], row.get('description',''), row.get('link',''), 
-                       row.get('role_target','All'), int(row.get('mandatory',0)), st.session_state['name']))
-        conn.commit(); conn.close()
-        return True
-    except: return False
-
-# --- RESOURCE TRACKER (ONBOARDING) HELPERS ---
-def get_onboarding_details(username):
+# --- RESOURCE TRACKER V2 HELPERS ---
+def get_all_resources_v2():
     conn = sqlite3.connect(DB_FILE)
-    try: df = pd.read_sql_query("SELECT * FROM onboarding_details WHERE username=?", conn, params=(username,))
-    except: df = pd.DataFrame()
+    try: 
+        df = pd.read_sql_query("SELECT * FROM resource_tracker_v2", conn)
+    except: 
+        df = pd.DataFrame()
     conn.close()
     return df
 
-def get_all_onboarding():
-    conn = sqlite3.connect(DB_FILE)
-    try: df = pd.read_sql_query("SELECT * FROM onboarding_details", conn)
-    except: df = pd.DataFrame()
-    conn.close()
-    return df
-
-def save_onboarding_details(data):
+def save_resource_v2(data):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT username FROM onboarding_details WHERE username=?", (data['username'],))
+    
+    # Check if Employee ID exists
+    c.execute("SELECT employee_id FROM resource_tracker_v2 WHERE employee_id=?", (data['employee_id'],))
     exists = c.fetchone()
-    cols = ['username', 'fullname', 'emp_id', 'tid', 'location', 'work_mode',
-            'hr_policy_briefing', 'it_system_setup', 'tid_active', 'team_centre_training',
-            'agt_access', 'ext_mail_id', 'rdp_access', 'avd_access', 'teamcenter_access',
-            'blocking_point', 'ticket_raised']
+    
+    cols = [
+        'employee_id', 'employee_name', 'dev_role', 'department', 'location', 
+        'reporting_manager', 'onboarding_start_date', 'skill_level', 'system_access_req',
+        'mandatory_trainings', 'doc_list_req', 'po_details', 'status', 'remarks',
+        'effective_exit_date', 'backfill_status', 'reason_for_leaving'
+    ]
+    
     vals = [data.get(k) for k in cols]
+    
     if exists:
         set_clause = ", ".join([f"{col}=?" for col in cols])
-        c.execute(f"UPDATE onboarding_details SET {set_clause} WHERE username=?", (*vals, data['username']))
+        # Append ID to end of vals for the WHERE clause (assuming ID is the first col in vals but used as key)
+        vals.append(data['employee_id']) 
+        c.execute(f"UPDATE resource_tracker_v2 SET {set_clause} WHERE employee_id=?", vals)
     else:
         placeholders = ",".join(["?"] * len(cols))
-        c.execute(f"INSERT INTO onboarding_details VALUES ({placeholders})", vals)
-    conn.commit(); conn.close()
+        c.execute(f"INSERT INTO resource_tracker_v2 VALUES ({placeholders})", vals)
+        
+    conn.commit()
+    conn.close()
 
 # --- PLOTLY HELPERS ---
 def get_analytics_chart(df):
@@ -314,7 +277,6 @@ def get_donut(df):
 USERS = {
     "leader": {"password": "123", "role": "Team Leader", "name": "Sarah Jenkins", "emp_id": "LDR-001", "tid": "TID-999", "img": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200&h=200"},
     "member1": {"password": "123", "role": "Team Member", "name": "David Chen", "emp_id": "EMP-101", "tid": "TID-101", "img": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=200&h=200"},
-    "member2": {"password": "123", "role": "Team Member", "name": "Emily Davis", "emp_id": "EMP-102", "tid": "TID-102", "img": "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200&h=200"}
 }
 
 def login_page():
@@ -339,10 +301,9 @@ def login_page():
 # ---------- APP SECTIONS ----------
 def app_home():
     st.markdown(f"## Welcome, {st.session_state['name']}")
-    st.caption(f"ID: {st.session_state.get('emp_id')} | TID: {st.session_state.get('tid')}")
+    st.caption(f"ID: {st.session_state.get('emp_id')} | Role: {st.session_state.get('role')}")
     st.write("---")
     
-    # 1 LINE OF 4 CARDS (RESTORED TO DESKTOP DEFAULT)
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
@@ -355,7 +316,7 @@ def app_home():
             if st.button("Launch Training", use_container_width=True, type="primary"): st.session_state['current_app']='TRAINING'; st.rerun()
     with c3:
         with st.container(border=True):
-            st.markdown("### 🚀 **Resource Tracker**"); st.caption("Onboarding & Info")
+            st.markdown("### 🚀 **Resource Tracker**"); st.caption("Staffing & Exit Mgmt")
             if st.button("Launch Tracker", use_container_width=True, type="primary"): st.session_state['current_app']='RESOURCE'; st.rerun()
     with c4:
         with st.container(border=True):
@@ -508,16 +469,6 @@ def app_training():
         t1, t2 = st.tabs(["Repository", "Add New"])
         with t1:
             df = get_trainings()
-            with st.expander("📂 Import / Export"):
-                col_imp, col_exp = st.columns(2)
-                with col_imp:
-                    up_train = st.file_uploader("Upload CSV", type=['csv'])
-                    if up_train:
-                        if import_training_csv(up_train): st.rerun()
-                with col_exp:
-                    if not df.empty:
-                        csv = df.to_csv(index=False).encode('utf-8')
-                        st.download_button("Download CSV", data=csv, file_name="training_repo.csv", mime="text/csv")
             if not df.empty: st.dataframe(df, use_container_width=True)
             else: st.info("Repository empty.")
         with t2:
@@ -552,7 +503,7 @@ def app_training():
                         if n_stat != c_stat:
                             update_training_status(st.session_state['name'], row['id'], n_stat); st.rerun()
 
-# --- RESOURCE TRACKER APP (UPDATED) ---
+# --- RESOURCE TRACKER APP (UPDATED V2) ---
 def app_resource():
     c1, c2 = st.columns([1, 6])
     with c1:
@@ -597,7 +548,7 @@ def app_resource():
                 emp_name = c1.text_input("Employee Name", value=d.get('employee_name', ''))
                 emp_id = c2.text_input("Employee ID", value=d.get('employee_id', ''), disabled=not is_add)
                 
-                # Auto-fill Manager (Mock logic: Assuming logged in user is the manager)
+                # Auto-fill Manager
                 manager_val = d.get('reporting_manager', st.session_state['name'])
                 rep_manager = c3.selectbox("Reporting Manager", [st.session_state['name'], "Jane Doe", "John Smith"], 
                                            index=0 if manager_val == st.session_state['name'] else 0)
@@ -619,7 +570,8 @@ def app_resource():
                 # Date Parse Helper
                 def get_date_val(key):
                     if d.get(key) and d.get(key) != 'None':
-                        return pd.to_datetime(d.get(key)).date()
+                        try: return pd.to_datetime(d.get(key)).date()
+                        except: return date.today()
                     return date.today()
 
                 onboard_date = c7.date_input("Onboarding Start Date", value=get_date_val('onboarding_start_date'))
@@ -634,7 +586,7 @@ def app_resource():
                 saved_sys = d.get('system_access_req', '').split(',') if d.get('system_access_req') else []
                 sys_req = st.multiselect("System Access Requirements", ["JIRA", "Confluence", "GitLab", "AWS", "Azure", "SAP"], default=saved_sys)
                 
-                # Auto-Derived Logic for Display (Read Only)
+                # Auto-Derived Logic
                 derived_training = "Security Awareness, Code of Conduct"
                 if dev_role == "QA": derived_training += ", Automation Basics"
                 if dept == "Data": derived_training += ", GDPR Training"
@@ -739,85 +691,6 @@ def app_resource():
     else:
         st.info("No resources found in the new tracker. Click 'Add Resource' to get started.")
 
-    # --- MEMBER VIEW (Checklist) ---
-    else:
-        df = get_onboarding_details(st.session_state['user'])
-        defaults = df.iloc[0].to_dict() if not df.empty else {}
-        with st.container(border=True):
-            st.subheader("Resource Checklist")
-            st.markdown("##### 👤 Employee Details")
-            ac1, ac2, ac3 = st.columns(3)
-            ac1.text_input("Full Name", value=st.session_state['name'], disabled=True)
-            ac2.text_input("Employee ID", value=st.session_state['emp_id'], disabled=True)
-            ac3.text_input("TID", value=st.session_state['tid'], disabled=True)
-
-            with st.form("onboarding_form"):
-                lc1, lc2 = st.columns(2)
-                loc = lc1.selectbox("Location", ["Chennai", "Pune", "Bangalore", "Client Site"], 
-                                    index=["Chennai", "Pune", "Bangalore", "Client Site"].index(defaults.get('location', 'Chennai')))
-                work_mode = lc2.selectbox("Work Mode", ["Office", "Remote"], 
-                                          index=["Office", "Remote"].index(defaults.get('work_mode', 'Office')))
-
-                st.markdown("---")
-                st.markdown("##### ✅ Checklist")
-                r1c1, r1c2, r1c3 = st.columns(3)
-                hr_pol = r1c1.checkbox("HR Policy Briefing", value=bool(defaults.get('hr_policy_briefing', 0)))
-                it_set = r1c2.checkbox("IT System Setup", value=bool(defaults.get('it_system_setup', 0)))
-                tc_trn = r1c3.checkbox("Team Centre Training", value=bool(defaults.get('team_centre_training', 0)))
-
-                st.write("")
-                st.markdown("**Remote / Access Validations**")
-                r2c1, r2c2, r2c3 = st.columns(3)
-                agt_val = bool(defaults.get('agt_access', 0))
-                rdp_val = bool(defaults.get('rdp_access', 0))
-                avd_val = bool(defaults.get('avd_access', 0))
-                
-                if work_mode == "Remote":
-                    r2c1.markdown("*(Required)*")
-                    agt = r2c1.checkbox("AGT Access", value=agt_val)
-                    r2c2.markdown("*(Required)*")
-                    rdp = r2c2.checkbox("RDP Access", value=rdp_val)
-                    r2c3.markdown("*(Required)*")
-                    avd = r2c3.checkbox("AVD Access", value=avd_val)
-                else:
-                    r2c1.markdown("*(N/A)*"); agt = r2c1.checkbox("AGT Access", value=agt_val, disabled=True)
-                    r2c2.markdown("*(N/A)*"); rdp = r2c2.checkbox("RDP Access", value=rdp_val, disabled=True)
-                    r2c3.markdown("*(N/A)*"); avd = r2c3.checkbox("AVD Access", value=avd_val, disabled=True)
-
-                st.markdown("---")
-                st.markdown("##### 🔒 Manager / IT Approvals (Read Only)")
-                m1, m2, m3 = st.columns(3)
-                m1.checkbox("TID Active", value=bool(defaults.get('tid_active', 0)), disabled=True)
-                m2.checkbox("External Mail ID", value=bool(defaults.get('ext_mail_id', 0)), disabled=True)
-                m3.checkbox("Teamcenter Access", value=bool(defaults.get('teamcenter_access', 0)), disabled=True)
-
-                st.markdown("---")
-                st.markdown("##### ⚠️ Issues")
-                bp = st.text_input("Blocking Point (If any)", value=defaults.get('blocking_point', ''))
-                
-                ticket_action = defaults.get('ticket_raised', '')
-                raise_ticket = False
-                if bp:
-                    st.warning("Blocking point detected.")
-                    if ticket_action: st.success(f"Ticket Raised: {ticket_action}")
-                    else: raise_ticket = st.checkbox("Raise IT Ticket?")
-
-                if st.form_submit_button("💾 Save Form", type="primary"):
-                    new_ticket_status = ticket_action
-                    if raise_ticket and not ticket_action: new_ticket_status = f"TKT-{str(uuid.uuid4())[:6]}"
-                    payload = {
-                        "username": st.session_state['user'], "fullname": st.session_state['name'],
-                        "emp_id": st.session_state['emp_id'], "tid": st.session_state['tid'],
-                        "location": loc, "work_mode": work_mode,
-                        "hr_policy_briefing": 1 if hr_pol else 0, "it_system_setup": 1 if it_set else 0,
-                        "tid_active": defaults.get('tid_active', 0), "team_centre_training": 1 if tc_trn else 0,
-                        "agt_access": 1 if agt else 0, "ext_mail_id": defaults.get('ext_mail_id', 0),
-                        "rdp_access": 1 if rdp else 0, "avd_access": 1 if avd else 0,
-                        "teamcenter_access": defaults.get('teamcenter_access', 0),
-                        "blocking_point": bp, "ticket_raised": new_ticket_status
-                    }
-                    save_onboarding_details(payload); st.success("Saved!"); st.rerun()
-
 # ---------- MAIN CONTROLLER ----------
 def main():
     init_db()
@@ -841,7 +714,7 @@ def main():
         if app == 'HOME': app_home()
         elif app == 'KPI': app_kpi()
         elif app == 'TRAINING': app_training()
-        elif app == 'RESOURCE': app_resource() # Renamed Routing
+        elif app == 'RESOURCE': app_resource()
 
 if __name__ == "__main__":
     main()
